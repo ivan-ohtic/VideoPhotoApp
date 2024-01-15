@@ -7,7 +7,7 @@ public class Zone {
     private int x;
     private int y;
     private int width;
-    private int height;
+    private int heigh;
     private List<Resource> resources;
 
     public String getId() {
@@ -43,11 +43,11 @@ public class Zone {
     }
 
     public int getHeight() {
-        return height;
+        return heigh;
     }
 
     public void setHeight(int height) {
-        this.height = height;
+        this.heigh = height;
     }
 
     public List<Resource> getResources() {

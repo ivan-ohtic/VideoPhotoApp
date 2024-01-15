@@ -14,6 +14,7 @@ import com.example.videophotoapp.model.Resource;
 import com.example.videophotoapp.model.Zone;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
@@ -62,29 +63,18 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        player = new ExoPlayer.Builder(this).build();
 
         try {
             checkAndUnzipAssets();
             readEventsJson();
-
-            setContentView(R.layout.activity_main);
-
-            imageView = findViewById(R.id.imageView);
-            playerView = findViewById(R.id.videoView);
-
-            player = new ExoPlayer.Builder(this).build();
-            playerView.setPlayer(player);
-
-            player.addListener(new Player.Listener() {
-                @Override
-                public void onPlayerError(PlaybackException error) {
-                    Log.e("MainActivity", "Player error: " + error.getMessage());
-                }
-            });
+            startResourceSequence(new Gson().fromJson(new InputStreamReader(new FileInputStream(new File(getFilesDir(), EVENTS_JSON))), EventSchedule.class));
         } catch (Exception e) {
             Log.e("MainActivity", "Error in onCreate", e);
         }
     }
+
 
     /**
      * Unzips the assets into the application's internal storage.
@@ -129,39 +119,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * Displays media (image or video) based on the information in the event schedule.
-     * @param eventSchedule The event schedule object containing media information.
-     */
-    private void showMedia(EventSchedule eventSchedule) {
-            for (Playlist playlist : eventSchedule.getPlaylists()) {
-                for (Zone zone : playlist.getZones()) {
-                    for (Resource resource : zone.getResources()) {
-                        executorService.execute(() -> {
-                            String resourceName = resource.getName();
-                            if (resourceName.endsWith(".mp4")) {
-                                handler.post(() -> {
-                                    PlayerView videoView = createAndConfigurePlayerView(zone);
-                                    playVideo(resourceName, videoView, resource.getDuration() * 1000L);
-                                });
-                            } else {
-                                handler.post(() -> {
-                                    //ImageView imageView = createAndConfigureImageView(zone);
-                                    showImage(resourceName, imageView, resource.getDuration() * 1000L);
-                                });
-                            }
-                            try {
-                                Thread.sleep(resource.getDuration() * 1000L);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        });
-                    }
-                }
-            }
-
-    }
-
-    /**
      * Starts the sequence of displaying resources based on the event schedule.
      * @param eventSchedule The event schedule containing the resources.
      */
@@ -186,60 +143,63 @@ public class MainActivity extends AppCompatActivity {
             executorService.execute(() -> {
                 if (resource.getName().endsWith(".mp4")) {
                     handler.post(() -> {
-                        PlayerView videoView = createAndConfigurePlayerView(zone);
-                        playVideo(resource.getName(), videoView, resource.getDuration() * 1000L);
+                        playVideo(resource.getName(), zone, resource.getDuration() * 1000L);
                     });
                 } else {
                     handler.post(() -> {
-                        //ImageView imageView = createAndConfigureImageView(zone);
-                        showImage(resource.getName(), imageView, resource.getDuration() * 1000L);
+                        showImage(resource.getName(), zone, resource.getDuration() * 1000L);
                     });
                 }
                 try {
-                    Thread.sleep(resource.getDuration() * 1000);
+                    Thread.sleep(resource.getDuration() * 1000L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
-                // Añade código aquí para manejar la finalización del recurso si es necesario.
             });
         }
     }
 
-    private void playVideo(String videoName, PlayerView videoView, long duration) {
-        videoView.setVisibility(View.VISIBLE);
-        MediaUtils.playVideo(videoName, videoView, player);
 
-        handler.postDelayed(() -> videoView.setVisibility(View.GONE), duration);
+    private void playVideo(String videoName, Zone zone, long duration) {
+        PlayerView videoView = createAndConfigurePlayerView(zone);
+
+        MediaItem mediaItem = MediaItem.fromUri(String.valueOf(new File(getFilesDir(), videoName).toURI()));
+
+        player.setMediaItem(mediaItem);
+        player.prepare();
+        player.play();
+
+        videoView.setPlayer(player);
+        handler.postDelayed(() -> ((RelativeLayout) findViewById(R.id.main_layout)).removeView(videoView), duration);
     }
 
-    private void showImage(String imageName, ImageView imageView, long duration) {
-        imageView.setVisibility(View.VISIBLE);
+    private void showImage(String imageName, Zone zone, long duration) {
+        ImageView imageView = createAndConfigureImageView(zone);
+        loadImageIntoView(imageName, imageView);
+
+        handler.postDelayed(() -> ((RelativeLayout) findViewById(R.id.main_layout)).removeView(imageView), duration);
+    }
+
+    private void loadImageIntoView(String imageName, ImageView imageView) {
         File imgFile = new File(getFilesDir(), imageName);
         if (imgFile.exists()) {
             Bitmap bitmap = BitmapFactory.decodeFile(imgFile.getAbsolutePath());
-            /*runOnUiThread(() -> {
-                imageView.setImageBitmap(bitmap);
-                imageView.setVisibility(View.VISIBLE);
-            });*/
             imageView.setImageBitmap(bitmap);
         }
-
-        //handler.postDelayed(() -> imageView.setVisibility(View.GONE), duration);
     }
-
     private PlayerView createAndConfigurePlayerView(Zone zone) {
         PlayerView playerView = new PlayerView(this);
         MediaUtils.configurePlayerView(zone.getX(), zone.getY(), zone.getWidth(), zone.getHeight(), playerView, this);
-        // Agregar playerView al layout principal
-        ((RelativeLayout) findViewById(R.id.main_layout)).addView(playerView);
+        RelativeLayout layout = findViewById(R.id.main_layout);
+        layout.addView(playerView);
         return playerView;
     }
 
     private ImageView createAndConfigureImageView(Zone zone) {
         ImageView imageView = new ImageView(this);
         MediaUtils.configureImageView(zone.getX(), zone.getY(), zone.getWidth(), zone.getHeight(), imageView, this);
-        // Agregar imageView al layout principal
-        ((RelativeLayout) findViewById(R.id.main_layout)).addView(imageView);
+        RelativeLayout layout = findViewById(R.id.main_layout);
+        layout.addView(imageView);
         return imageView;
     }
 
