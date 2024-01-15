@@ -1,6 +1,5 @@
 package com.example.videophotoapp;
 
-import android.content.Context;
 import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Handler;
@@ -13,10 +12,12 @@ import android.widget.RelativeLayout;
 import com.example.videophotoapp.model.Playlist;
 import com.example.videophotoapp.model.Resource;
 import com.example.videophotoapp.model.Zone;
-import com.google.android.exoplayer2.ExoPlayer;
-import com.google.android.exoplayer2.MediaItem;
-import com.google.android.exoplayer2.ui.PlayerView;
+
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -24,8 +25,13 @@ import java.io.FileInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+import com.example.videophotoapp.utils.MediaUtils;
 import com.example.videophotoapp.utils.ZipUtils;
 import com.google.gson.Gson;
 import com.example.videophotoapp.model.EventSchedule;
@@ -43,8 +49,11 @@ public class MainActivity extends AppCompatActivity {
     private static final String EVENTS_JSON = "events.json";
 
     private Handler handler = new Handler();
-    private List<Resource> resourceQueue = new ArrayList<>();
-    private int currentResourceIndex = 0;
+
+    Map<Zone,List<Resource>> zoneResourceMap = new LinkedHashMap<>();
+
+    private ExecutorService executorService = Executors.newSingleThreadExecutor();
+
 
     /**
      * Called when the activity is starting.
@@ -53,14 +62,25 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        imageView = findViewById(R.id.imageView);
-        playerView = findViewById(R.id.videoView);
 
         try {
             checkAndUnzipAssets();
             readEventsJson();
+
+            setContentView(R.layout.activity_main);
+
+            imageView = findViewById(R.id.imageView);
+            playerView = findViewById(R.id.videoView);
+
+            player = new ExoPlayer.Builder(this).build();
+            playerView.setPlayer(player);
+
+            player.addListener(new Player.Listener() {
+                @Override
+                public void onPlayerError(PlaybackException error) {
+                    Log.e("MainActivity", "Player error: " + error.getMessage());
+                }
+            });
         } catch (Exception e) {
             Log.e("MainActivity", "Error in onCreate", e);
         }
@@ -98,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
             EventSchedule eventSchedule = gson.fromJson(reader, EventSchedule.class);
 
             // Show the first media from the EventSchedule
-            showMedia(eventSchedule);
+            //showMedia(eventSchedule);
 
             // Start the resource sequence
             startResourceSequence(eventSchedule);
@@ -113,85 +133,32 @@ public class MainActivity extends AppCompatActivity {
      * @param eventSchedule The event schedule object containing media information.
      */
     private void showMedia(EventSchedule eventSchedule) {
-        // Assume we always want to show the first resource of the first playlist and first zone.
-        // Check if there are playlists and zones available
-        if (!eventSchedule.getPlaylists().isEmpty() && !eventSchedule.getPlaylists().get(0).getZones().isEmpty()) {
-            Zone zone = eventSchedule.getPlaylists().get(0).getZones().get(0);
-            configurePlayerView(zone.getX(), zone.getY(), zone.getWidth(), zone.getHeight());
-
-            if (!zone.getResources().isEmpty()) {
-                Resource resource = zone.getResources().get(0);
-                String resourceName = resource.getName();
-
-                // Check if the resource is a video or an image based on its file extension
-                if (resourceName.endsWith(".mp4")) {
-                    playVideo(resourceName);
-                } else {
-                    showImage(resourceName);
+            for (Playlist playlist : eventSchedule.getPlaylists()) {
+                for (Zone zone : playlist.getZones()) {
+                    for (Resource resource : zone.getResources()) {
+                        executorService.execute(() -> {
+                            String resourceName = resource.getName();
+                            if (resourceName.endsWith(".mp4")) {
+                                handler.post(() -> {
+                                    PlayerView videoView = createAndConfigurePlayerView(zone);
+                                    playVideo(resourceName, videoView, resource.getDuration() * 1000L);
+                                });
+                            } else {
+                                handler.post(() -> {
+                                    //ImageView imageView = createAndConfigureImageView(zone);
+                                    showImage(resourceName, imageView, resource.getDuration() * 1000L);
+                                });
+                            }
+                            try {
+                                Thread.sleep(resource.getDuration() * 1000L);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        });
+                    }
                 }
-            } else {
-                Log.e("MainActivity", "No resources in the zone.");
-            }
-        } else {
-            Log.e("MainActivity", "No playlists or zones in EventSchedule.");
-        }
-    }
-
-    /**
-     * Plays a video from the application's internal storage.
-     * @param videoName The name of the video file to play.
-     */
-    private void playVideo(String videoName) {
-        imageView.setVisibility(View.GONE);
-        playerView.setVisibility(View.VISIBLE);
-
-        // Set the player to the PlayerView
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-
-        // Create a MediaItem for the video
-        MediaItem mediaItem = MediaItem.fromUri(getFilesDir() + "/" + videoName);
-
-        // Prepare the player with the MediaItem and start playing
-        player.setMediaItem(mediaItem);
-        player.prepare();
-        player.play();
-    }
-
-    /**
-     * Shows an image from the application's internal storage.
-     * @param imageName The name of the image file to display.
-     */
-    private void showImage(String imageName) {
-        imageView.setVisibility(View.VISIBLE);
-        playerView.setVisibility(View.GONE);
-
-        // Load the image file
-        File imgFile = new File(getFilesDir(), imageName);
-        if (imgFile.exists()) {
-            Bitmap myBitmap = BitmapFactory.decodeFile(imgFile.getAbsolutePath());
-            imageView.setImageBitmap(myBitmap);
-        } else {
-            Log.e("MainActivity", "Unable to find image: " + imageName);
-        }
-    }
-
-    /**
-     * Loads the next resource in the queue.
-     */
-    private void loadNextResource() {
-        if (currentResourceIndex < resourceQueue.size()) {
-            Resource resource = resourceQueue.get(currentResourceIndex);
-            if (resource.getName().endsWith(".mp4")) {
-                playVideo(resource.getName());
-            } else {
-                showImage(resource.getName());
             }
 
-            // Schedule loading the next resource after the specified time
-            handler.postDelayed(this::loadNextResource, resource.getDuration() * 1000); // Duration in milliseconds
-            currentResourceIndex++;
-        }
     }
 
     /**
@@ -199,42 +166,81 @@ public class MainActivity extends AppCompatActivity {
      * @param eventSchedule The event schedule containing the resources.
      */
     private void startResourceSequence(EventSchedule eventSchedule) {
-        // Add all resources to the queue. This might vary depending on your data structure.
+
         for (Playlist playlist : eventSchedule.getPlaylists()) {
             for (Zone zone : playlist.getZones()) {
-                resourceQueue.addAll(zone.getResources());
+                List<Resource> resources = new ArrayList<>(zone.getResources());
+                zoneResourceMap.put(zone, resources);
             }
         }
 
-        // Start with the first resource
-        loadNextResource();
+        // Iniciar visualización para la primera zona
+        if (!zoneResourceMap.isEmpty()) {
+            displayZoneResources(zoneResourceMap.keySet().iterator().next());
+        }
     }
 
-    /**
-     * Configures the layout of the PlayerView based on the provided dimensions and position.
-     * @param x The X position for the PlayerView.
-     * @param y The Y position for the PlayerView.
-     * @param width The width of the PlayerView.
-     * @param height The height of the PlayerView.
-     */
-    private void configurePlayerView(int x, int y, int width, int height) {
-        RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-                convertDpToPixel(width, this),
-                convertDpToPixel(height, this));
-        params.leftMargin = convertDpToPixel(x, this);
-        params.topMargin = convertDpToPixel(y, this);
-
-        playerView.setLayoutParams(params);
+    private void displayZoneResources(Zone zone) {
+        List<Resource> resources = zoneResourceMap.get(zone);
+        for (Resource resource : resources) {
+            executorService.execute(() -> {
+                if (resource.getName().endsWith(".mp4")) {
+                    handler.post(() -> {
+                        PlayerView videoView = createAndConfigurePlayerView(zone);
+                        playVideo(resource.getName(), videoView, resource.getDuration() * 1000L);
+                    });
+                } else {
+                    handler.post(() -> {
+                        //ImageView imageView = createAndConfigureImageView(zone);
+                        showImage(resource.getName(), imageView, resource.getDuration() * 1000L);
+                    });
+                }
+                try {
+                    Thread.sleep(resource.getDuration() * 1000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                // Añade código aquí para manejar la finalización del recurso si es necesario.
+            });
+        }
     }
 
-    /**
-     * Converts dp (density independent pixels) to pixel units based on screen density.
-     * @param dp The size in density independent pixels.
-     * @param context The context to get resources and device specific display metrics.
-     * @return The size in pixels.
-     */
-    public static int convertDpToPixel(float dp, Context context) {
-        return (int) (dp * context.getResources().getDisplayMetrics().density);
+    private void playVideo(String videoName, PlayerView videoView, long duration) {
+        videoView.setVisibility(View.VISIBLE);
+        MediaUtils.playVideo(videoName, videoView, player);
+
+        handler.postDelayed(() -> videoView.setVisibility(View.GONE), duration);
+    }
+
+    private void showImage(String imageName, ImageView imageView, long duration) {
+        imageView.setVisibility(View.VISIBLE);
+        File imgFile = new File(getFilesDir(), imageName);
+        if (imgFile.exists()) {
+            Bitmap bitmap = BitmapFactory.decodeFile(imgFile.getAbsolutePath());
+            /*runOnUiThread(() -> {
+                imageView.setImageBitmap(bitmap);
+                imageView.setVisibility(View.VISIBLE);
+            });*/
+            imageView.setImageBitmap(bitmap);
+        }
+
+        //handler.postDelayed(() -> imageView.setVisibility(View.GONE), duration);
+    }
+
+    private PlayerView createAndConfigurePlayerView(Zone zone) {
+        PlayerView playerView = new PlayerView(this);
+        MediaUtils.configurePlayerView(zone.getX(), zone.getY(), zone.getWidth(), zone.getHeight(), playerView, this);
+        // Agregar playerView al layout principal
+        ((RelativeLayout) findViewById(R.id.main_layout)).addView(playerView);
+        return playerView;
+    }
+
+    private ImageView createAndConfigureImageView(Zone zone) {
+        ImageView imageView = new ImageView(this);
+        MediaUtils.configureImageView(zone.getX(), zone.getY(), zone.getWidth(), zone.getHeight(), imageView, this);
+        // Agregar imageView al layout principal
+        ((RelativeLayout) findViewById(R.id.main_layout)).addView(imageView);
+        return imageView;
     }
 
     /**
@@ -248,4 +254,5 @@ public class MainActivity extends AppCompatActivity {
             player = null;
         }
     }
+
 }

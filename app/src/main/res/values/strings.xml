@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">VideoPhotoApp</string>
+    <string name="imagen_cargada_desde_archivo">Imagen cargada desde archivo</string>
 </resources>
