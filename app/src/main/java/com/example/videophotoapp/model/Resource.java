@@ -37,4 +37,13 @@ public class Resource {
     public void setDuration(int duration) {
         this.duration = duration;
     }
+
+    /**
+     * Determina si el recurso es un video basado en la extensión del nombre del archivo.
+     *
+     * @return true si el nombre del archivo termina con ".mp4", false en caso contrario.
+     */
+    public boolean isVideo() {
+        return name != null && name.toLowerCase().endsWith(".mp4");
+    }
 }
