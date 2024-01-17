@@ -17,34 +17,37 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
-import com.example.videophotoapp.R;
 import com.example.videophotoapp.model.EventSchedule;
 import com.example.videophotoapp.model.Playlist;
 import com.example.videophotoapp.model.Resource;
 import com.example.videophotoapp.model.Zone;
+import com.example.videophotoapp.utils.EventsService;
 import com.example.videophotoapp.utils.ZipUtils;
-import com.google.gson.Gson;
-import java.io.File;
-import java.io.FileInputStream;
+
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
-    private static final String ZIP_FILE_NAME = "NSIGN_Prueba_Android.zip";
-    private static final String EVENTS_JSON = "events.json";
     private ExoPlayer player;
     private RelativeLayout mainLayout;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private Handler uiHandler = new Handler(Looper.getMainLooper());
     private EventSchedule eventSchedule;
 
+    private ZipUtils zipUtils = null;
+
+    private EventsService eventsService = null;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        Log.d("MainActivity", "onCreate called");
+
+        zipUtils = new ZipUtils();
+        eventsService = new EventsService(this, zipUtils);
         setContentView(R.layout.activity_main);
 
         player = new ExoPlayer.Builder(this).build();
@@ -62,62 +65,33 @@ public class MainActivity extends AppCompatActivity {
      * Carga el cronograma de eventos, descomprimiendo los recursos y leyendo el archivo JSON.
      */
     private void loadEventSchedule() throws IOException {
-        checkAndUnzipAssets();
-        readEventsJson();
-    }
-
-    /**
-     * Descomprime los archivos y prepara el events.json para su uso.
-     * @throws IOException Si ocurre un error de entrada/salida durante la descompresión.
-     */
-    private void checkAndUnzipAssets() throws IOException {
-        File eventsJson = new File(getFilesDir(), EVENTS_JSON);
-
-        if (eventsJson.exists()) {
-            eventsJson.delete();
-        }
-
-        try (InputStream is = getAssets().open(ZIP_FILE_NAME)) {
-            ZipUtils.unzip(is, getFilesDir());
-        } catch (Exception e) {
-            Log.e("MainActivity", "Error unzipping", e);
-            throw e;
-        }
-    }
-
-    /**
-     * Lee el cronograma de eventos desde un archivo JSON y lo almacena en una variable.
-     * @throws IOException Si ocurre un error de entrada/salida durante la lectura del archivo.
-     */
-    private void readEventsJson() throws IOException {
-        File eventsJson = new File(getFilesDir(), EVENTS_JSON);
-        Gson gson = new Gson();
-        try (InputStreamReader reader = new InputStreamReader(new FileInputStream(eventsJson))) {
-            eventSchedule = gson.fromJson(reader, EventSchedule.class);
-        } catch (Exception e) {
-            Log.e("MainActivity", "Error reading events.json", e);
-            throw e;
-        }
+        eventsService.checkAndUnzipAssets();
+        eventSchedule = eventsService.readEventsJson();
     }
 
     /**
      * Configura los recursos para cada zona especificada en el cronograma de eventos.
      */
     private void setupResources() {
-        // Ejemplo de cómo podrías implementar un control de duración para las Playlists.
+        // Control duración playlists
+        long lastPlaylistDuration = 1;
         for (int i = 0; i < eventSchedule.getPlaylists().size(); i++) {
             final int index = i;
             Playlist playlist = eventSchedule.getPlaylists().get(index);
-            uiHandler.postDelayed(() -> {
 
+            uiHandler.postDelayed(() -> {
+                Log.d("MainActivity", "Scheduled execution for playlist: " + index);
                 for (Zone zone : playlist.getZones()) {
                     setupZone(zone);
                 }
                 if (index == eventSchedule.getPlaylists().size() - 1) {
-                    // Si es la última playlist, vuelve a la primera.
-                    setupResources(); // Esto reinicia el ciclo de Playlists.
+                    Log.d("MainActivity", "Repeating playlist sequence");
+                    setupResources();
                 }
-            }, playlist.getDuration() * 1000);
+            }, lastPlaylistDuration * 1000L);
+            Log.d("MainActivity", "setup resources: "+eventSchedule.getPlaylists().get(index).getId() + ", delay: "+ lastPlaylistDuration);
+
+            lastPlaylistDuration = playlist.getDuration();
         }
     }
 
@@ -127,11 +101,19 @@ public class MainActivity extends AppCompatActivity {
      * @param zone Zona a ser configurada.
      */
     private void setupZone(Zone zone) {
+        Log.d("MainActivity", "Zone setup: " + zone.getId());
+
         View zoneView = createZoneView(zone);
         mainLayout.addView(zoneView);
 
+        // Ordenar los recursos por su campo 'order'.
+        //List<Resource> sortedResources = new ArrayList<>(zone.getResources());
+        //Collections.sort(sortedResources, Comparator.comparingInt(Resource::getOrder));
+
+        long accumulatedDelay = 0;
         for (Resource resource : zone.getResources()) {
-            scheduleResourceDisplay(resource, zoneView);
+            scheduleResourceDisplay(resource, zoneView, accumulatedDelay);
+            accumulatedDelay += resource.getDuration() * 1000; // Acumula la duración en milisegundos.
         }
     }
 
@@ -173,14 +155,17 @@ public class MainActivity extends AppCompatActivity {
      * @param resource Recurso a ser mostrado.
      * @param zoneView Vista de la zona donde se mostrará el recurso.
      */
-    private void scheduleResourceDisplay(Resource resource, View zoneView) {
-        executorService.execute(() -> {
+    private void scheduleResourceDisplay(Resource resource, View zoneView, long delay) {
+        Log.d("MainActivity", "scheduleResourceDisplay: " + resource.getName());
+        uiHandler.postDelayed(() -> {
             if (resource.isVideo()) {
+                Log.d("MainActivity", "Scheduling video display for: " + resource.getName());
                 prepareVideo(resource, zoneView);
             } else {
+                Log.d("MainActivity", "Scheduling image display for: " + resource.getName());
                 prepareImage(resource, zoneView);
             }
-        });
+        }, delay);
     }
 
     /**
@@ -214,13 +199,14 @@ public class MainActivity extends AppCompatActivity {
      * @param zoneView Vista de la zona donde se reproducirá el video.
      */
     private void playVideo(Resource resource, View zoneView) {
+        Log.d("MainActivity", "Playing video: " + resource.getName() + " in: " + zoneView.getId());
         if (!(zoneView instanceof FrameLayout)) {
             Log.e("MainActivity", "zoneView no es FrameLayout");
             return;
         }
 
         PlayerView playerView = new PlayerView(this);
-        playerView.setLayoutParams(new FrameLayout.LayoutParams(
+        playerView.setLayoutParams(new RelativeLayout.LayoutParams(
                 zoneView.getWidth(),
                 zoneView.getHeight()));
 
@@ -241,6 +227,8 @@ public class MainActivity extends AppCompatActivity {
             videoPlayer.release();
             ((FrameLayout) zoneView).removeView(playerView);
         }, resource.getDuration() * 1000L);
+
+
     }
 
     /**
@@ -250,13 +238,14 @@ public class MainActivity extends AppCompatActivity {
      * @param zoneView Vista de la zona donde se mostrará la imagen.
      */
     private void showImage(Resource resource, View zoneView) {
+        Log.d("MainActivity", "Showing image: " + resource.getName());
         if (!(zoneView instanceof FrameLayout)) {
             Log.e("MainActivity", "zoneView no es FrameLayout");
             return;
         }
 
         ImageView imageView = new ImageView(this);
-        imageView.setLayoutParams(new FrameLayout.LayoutParams(
+        imageView.setLayoutParams(new RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -320,6 +309,7 @@ public class MainActivity extends AppCompatActivity {
             player = null;
         }
         executorService.shutdown();
+        Log.d("MainActivity", "onDestroy called");
     }
 
 }

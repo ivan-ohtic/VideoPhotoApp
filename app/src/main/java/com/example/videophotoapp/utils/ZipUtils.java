@@ -6,7 +6,7 @@ import java.util.zip.ZipInputStream;
 
 public class ZipUtils {
 
-    public static void unzip(InputStream zipFile, File targetDirectory) throws IOException {
+    public void unzip(InputStream zipFile, File targetDirectory) throws IOException {
         ZipInputStream zis = new ZipInputStream(zipFile);
         ZipEntry zipEntry = zis.getNextEntry();
         byte[] buffer = new byte[1024];
