@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -42,14 +43,13 @@ public class MainActivity extends AppCompatActivity {
     private EventSchedule eventSchedule;
 
     private ZipUtils zipUtils = null;
-
     private MediaUtils mediaUtils = null;
-
     private EventsService eventsService = null;
 
     private int resourceViewIdCounter = 1;
-
     private int zoneIdCounter = 1;
+
+    private ProgressBar progressBar;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,8 +60,9 @@ public class MainActivity extends AppCompatActivity {
         zipUtils = new ZipUtils(this);
         mediaUtils = new MediaUtils();
         eventsService = new EventsService(this, zipUtils);
-        setContentView(R.layout.activity_main);
 
+        setContentView(R.layout.activity_main);
+        progressBar = findViewById(R.id.progressBar);
         mainLayout = findViewById(R.id.main_layout);
 
         try {
@@ -172,8 +173,10 @@ public class MainActivity extends AppCompatActivity {
     private void scheduleResourceDisplay(Resource resource, View zoneView, long delay) {
         Log.d("MainActivity", "schedule resource display: " + resource.getName() + ", delay: " + delay);
         uiHandler.postDelayed(() -> {
-            // Cualquier vista existente en la zona se elimina antes de mostrar un nuevo recurso
-
+            // Ocultar el ProgressBar cuando el primer recurso esté listo para ser mostrado
+            if (delay == 0) {
+                progressBar.setVisibility(View.GONE);
+            }
 
             if (resource.isVideo()) {
                 playVideo(resource, zoneView);
