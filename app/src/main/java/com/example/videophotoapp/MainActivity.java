@@ -222,7 +222,7 @@ public class MainActivity extends AppCompatActivity {
             Log.d("MainActivity", "Video ended, releasing resources for: " + resource.getName());
             videoPlayer.release();
             ((FrameLayout) zoneView).removeView(playerView);
-        }, (resource.getDuration()-1) * 1000L);
+        }, (resource.getDuration()) * 1000L - 500);
 
 
     }
