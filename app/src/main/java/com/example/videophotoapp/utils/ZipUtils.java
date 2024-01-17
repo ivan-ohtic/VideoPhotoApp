@@ -1,17 +1,25 @@
 package com.example.videophotoapp.utils;
 
+import android.content.Context;
+
 import java.io.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class ZipUtils {
 
-    public void unzip(InputStream zipFile, File targetDirectory) throws IOException {
+    private final Context context;
+
+    public ZipUtils(Context context) {
+        this.context = context;
+    }
+
+    public void unzip(InputStream zipFile) throws IOException {
         ZipInputStream zis = new ZipInputStream(zipFile);
         ZipEntry zipEntry = zis.getNextEntry();
         byte[] buffer = new byte[1024];
         while (zipEntry != null) {
-            File newFile = new File(targetDirectory, zipEntry.getName());
+            File newFile = new File(context.getFilesDir(), zipEntry.getName());
             if (zipEntry.isDirectory()) {
                 newFile.mkdirs();
             } else {

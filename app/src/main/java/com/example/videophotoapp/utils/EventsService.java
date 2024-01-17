@@ -38,9 +38,10 @@ public class EventsService {
         }
 
         try (InputStream is = context.getAssets().open(ZIP_FILE_NAME)) {
-            zipUtils.unzip(is, context.getFilesDir());
+            Log.d("EventsService", "unzipping...");
+            zipUtils.unzip(is);
         } catch (Exception e) {
-            Log.e("MainActivity", "Error unzipping", e);
+            Log.e("EventsService", "Error unzipping", e);
             throw e;
         }
     }

@@ -14,6 +14,7 @@ import android.widget.RelativeLayout;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -22,23 +23,33 @@ import com.example.videophotoapp.model.Playlist;
 import com.example.videophotoapp.model.Resource;
 import com.example.videophotoapp.model.Zone;
 import com.example.videophotoapp.utils.EventsService;
+import com.example.videophotoapp.utils.MediaUtils;
 import com.example.videophotoapp.utils.ZipUtils;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
 
-    private ExoPlayer player;
     private RelativeLayout mainLayout;
     private final ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
-    private Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private EventSchedule eventSchedule;
 
     private ZipUtils zipUtils = null;
 
+    private MediaUtils mediaUtils = null;
+
     private EventsService eventsService = null;
+
+    private int resourceViewIdCounter = 1;
+
+    private int zoneIdCounter = 1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,18 +57,18 @@ public class MainActivity extends AppCompatActivity {
 
         Log.d("MainActivity", "onCreate called");
 
-        zipUtils = new ZipUtils();
+        zipUtils = new ZipUtils(this);
+        mediaUtils = new MediaUtils();
         eventsService = new EventsService(this, zipUtils);
         setContentView(R.layout.activity_main);
 
-        player = new ExoPlayer.Builder(this).build();
         mainLayout = findViewById(R.id.main_layout);
 
         try {
             loadEventSchedule();
-            setupResources();
+            setupResources(true);
         } catch (IOException e) {
-            Log.e("MainActivity", "Error en onCreate", e);
+            Log.e("MainActivity", "Error onCreate", e);
         }
     }
 
@@ -72,27 +83,38 @@ public class MainActivity extends AppCompatActivity {
     /**
      * Configura los recursos para cada zona especificada en el cronograma de eventos.
      */
-    private void setupResources() {
-        // Control duración playlists
-        long lastPlaylistDuration = 1;
-        for (int i = 0; i < eventSchedule.getPlaylists().size(); i++) {
-            final int index = i;
-            Playlist playlist = eventSchedule.getPlaylists().get(index);
+    private void setupResources(boolean firstExecution) {
+        executorService.execute(() -> {
+            Thread currentThread = Thread.currentThread();
+            long threadId = currentThread.getId();
+            Log.d("MainActivity", "Thread started: " + threadId + ", firstExecution: " + firstExecution);
 
-            uiHandler.postDelayed(() -> {
-                Log.d("MainActivity", "Scheduled execution for playlist: " + index);
-                for (Zone zone : playlist.getZones()) {
-                    setupZone(zone);
-                }
-                if (index == eventSchedule.getPlaylists().size() - 1) {
-                    Log.d("MainActivity", "Repeating playlist sequence");
-                    setupResources();
-                }
-            }, lastPlaylistDuration * 1000L);
-            Log.d("MainActivity", "setup resources: "+eventSchedule.getPlaylists().get(index).getId() + ", delay: "+ lastPlaylistDuration);
+            long lastPlaylistDuration = 0;
+            if (!firstExecution) {
+                Playlist lastPlaylist = eventSchedule.getPlaylists().get(eventSchedule.getPlaylists().size() - 1);
+                lastPlaylistDuration += lastPlaylist.getDuration() * 1000L; // Convierte a milisegundos
+            }
 
-            lastPlaylistDuration = playlist.getDuration();
-        }
+            for (int i = 0; i < eventSchedule.getPlaylists().size(); i++) {
+                final int index = i;
+                Playlist playlist = eventSchedule.getPlaylists().get(index);
+
+                long finalLastPlaylistDuration = lastPlaylistDuration;
+                uiHandler.postDelayed(() -> {
+                    Log.d("MainActivity", "Scheduled execution for playlist: " + (index + 1) + " delay (s): " + finalLastPlaylistDuration / 1000);
+
+                    for (Zone zone : playlist.getZones()) {
+                        setupZone(zone);
+                    }
+
+                    if (index == eventSchedule.getPlaylists().size() - 1) {
+                        Log.d("MainActivity", "Repeating playlist sequence");
+                        setupResources(false);
+                    }
+                }, lastPlaylistDuration);
+                lastPlaylistDuration += playlist.getDuration() * 1000L;
+            }
+        });
     }
 
     /**
@@ -107,13 +129,13 @@ public class MainActivity extends AppCompatActivity {
         mainLayout.addView(zoneView);
 
         // Ordenar los recursos por su campo 'order'.
-        //List<Resource> sortedResources = new ArrayList<>(zone.getResources());
-        //Collections.sort(sortedResources, Comparator.comparingInt(Resource::getOrder));
+        List<Resource> sortedResources = new ArrayList<>(zone.getResources());
+        sortedResources.sort(Comparator.comparingInt(Resource::getOrder));
 
         long accumulatedDelay = 0;
-        for (Resource resource : zone.getResources()) {
+        for (Resource resource : sortedResources) {
             scheduleResourceDisplay(resource, zoneView, accumulatedDelay);
-            accumulatedDelay += resource.getDuration() * 1000; // Acumula la duración en milisegundos.
+            accumulatedDelay += resource.getDuration() * 1000L; // Acumula la duración en milisegundos.
         }
     }
 
@@ -125,28 +147,20 @@ public class MainActivity extends AppCompatActivity {
      */
     private View createZoneView(Zone zone) {
         FrameLayout zoneLayout = new FrameLayout(this);
+        int zoneId = zoneIdCounter++;
+        zoneLayout.setId(zoneId);
 
         // Configurar dimensiones y posición de zoneLayout según los datos de Zone.
         // Utilizamos RelativeLayout.LayoutParams para posicionar la vista dentro del RelativeLayout.
         RelativeLayout.LayoutParams params = new RelativeLayout.LayoutParams(
-                convertDpToPixel(zone.getWidth()),
-                convertDpToPixel(zone.getHeight())
+                zone.getWidth(),
+                zone.getHeight()
         );
-        params.leftMargin = convertDpToPixel(zone.getX());
-        params.topMargin = convertDpToPixel(zone.getY());
+        params.leftMargin = zone.getX();
+        params.topMargin = zone.getY();
         zoneLayout.setLayoutParams(params);
 
         return zoneLayout;
-    }
-
-    /**
-     * Convierte un valor en dp (density-independent pixels) a píxeles.
-     *
-     * @param dp Valor en dp a ser convertido.
-     * @return Valor convertido en píxeles.
-     */
-    private int convertDpToPixel(int dp) {
-        return (int) (dp * getResources().getDisplayMetrics().density);
     }
 
     /**
@@ -156,40 +170,17 @@ public class MainActivity extends AppCompatActivity {
      * @param zoneView Vista de la zona donde se mostrará el recurso.
      */
     private void scheduleResourceDisplay(Resource resource, View zoneView, long delay) {
-        Log.d("MainActivity", "scheduleResourceDisplay: " + resource.getName());
+        Log.d("MainActivity", "schedule resource display: " + resource.getName() + ", delay: " + delay);
         uiHandler.postDelayed(() -> {
+            // Cualquier vista existente en la zona se elimina antes de mostrar un nuevo recurso
+
+
             if (resource.isVideo()) {
-                Log.d("MainActivity", "Scheduling video display for: " + resource.getName());
-                prepareVideo(resource, zoneView);
+                playVideo(resource, zoneView);
             } else {
-                Log.d("MainActivity", "Scheduling image display for: " + resource.getName());
-                prepareImage(resource, zoneView);
+                showImage(resource, zoneView);
             }
         }, delay);
-    }
-
-    /**
-     * Prepara un video para ser mostrado en una zona específica.
-     *
-     * @param resource Recurso de video.
-     * @param zoneView Vista de la zona donde se reproducirá el video.
-     */
-    private void prepareVideo(Resource resource, View zoneView) {
-        // Cargar y preparar video
-        // En el hilo UI:
-        uiHandler.post(() -> playVideo(resource, zoneView));
-    }
-
-    /**
-     * Prepara una imagen para ser mostrada en una zona específica.
-     *
-     * @param resource Recurso de imagen.
-     * @param zoneView Vista de la zona donde se mostrará la imagen.
-     */
-    private void prepareImage(Resource resource, View zoneView) {
-        // Cargar imagen
-        // En el hilo UI:
-        uiHandler.post(() -> showImage(resource, zoneView));
     }
 
     /**
@@ -201,32 +192,34 @@ public class MainActivity extends AppCompatActivity {
     private void playVideo(Resource resource, View zoneView) {
         Log.d("MainActivity", "Playing video: " + resource.getName() + " in: " + zoneView.getId());
         if (!(zoneView instanceof FrameLayout)) {
-            Log.e("MainActivity", "zoneView no es FrameLayout");
+            Log.e("MainActivity", "zoneView is not a FrameLayout");
             return;
         }
 
         PlayerView playerView = new PlayerView(this);
+        int playerViewId = resourceViewIdCounter++;
+        playerView.setId(playerViewId); // Asigna un ID único
+        Log.d("MainActivity", "with playerview:"+playerViewId);
         playerView.setLayoutParams(new RelativeLayout.LayoutParams(
-                zoneView.getWidth(),
-                zoneView.getHeight()));
-
-        //((FrameLayout) zoneView).removeAllViews();
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
         ((FrameLayout) zoneView).addView(playerView);
 
         // Configurar y reproducir el video en playerView
         ExoPlayer videoPlayer = new ExoPlayer.Builder(this).build();
         MediaItem mediaItem = MediaItem.fromUri(getFilesDir() + "/" + resource.getName());
+
         videoPlayer.setMediaItem(mediaItem);
         videoPlayer.prepare();
         videoPlayer.play();
 
         playerView.setPlayer(videoPlayer);
 
-        // Liberar el player al finalizar la reproducción
         uiHandler.postDelayed(() -> {
+            Log.d("MainActivity", "Video ended, releasing resources for: " + resource.getName());
             videoPlayer.release();
             ((FrameLayout) zoneView).removeView(playerView);
-        }, resource.getDuration() * 1000L);
+        }, (resource.getDuration()-1) * 1000L);
 
 
     }
@@ -238,9 +231,9 @@ public class MainActivity extends AppCompatActivity {
      * @param zoneView Vista de la zona donde se mostrará la imagen.
      */
     private void showImage(Resource resource, View zoneView) {
-        Log.d("MainActivity", "Showing image: " + resource.getName());
+        Log.d("MainActivity", "Showing image: " + resource.getName() + " in: "+ zoneView.getId());
         if (!(zoneView instanceof FrameLayout)) {
-            Log.e("MainActivity", "zoneView no es FrameLayout");
+            Log.e("MainActivity", "zoneView is not a FrameLayout");
             return;
         }
 
@@ -248,66 +241,39 @@ public class MainActivity extends AppCompatActivity {
         imageView.setLayoutParams(new RelativeLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+        int playerViewId = resourceViewIdCounter++;
+        imageView.setId(playerViewId);
 
         Bitmap bitmap = null;
         try {
             BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inSampleSize = calculateInSampleSize(options, imageView.getWidth(), imageView.getHeight());
+            options.inSampleSize = mediaUtils.calculateInSampleSize(options, imageView.getWidth(), imageView.getHeight());
             bitmap = BitmapFactory.decodeFile(getFilesDir() + "/" + resource.getName(), options);
         } catch (Exception e) {
-            Log.e("MainActivity", "Error al cargar la imagen", e);
+            Log.e("MainActivity", "Error loading image", e);
         }
 
         if (bitmap != null) {
+            ((FrameLayout) zoneView).removeAllViews();
             imageView.setImageBitmap(bitmap);
-            //((FrameLayout) zoneView).removeAllViews();
             ((FrameLayout) zoneView).addView(imageView);
 
             // Eliminar el imageView y liberar el bitmap
             Bitmap finalBitmap = bitmap;
             uiHandler.postDelayed(() -> {
+                Log.d("MainActivity", "Delete imageView" + resource.getName());
                 ((FrameLayout) zoneView).removeView(imageView);
                 finalBitmap.recycle();
-            }, resource.getDuration() * 1000);
+            }, resource.getDuration() * 1000L);
+
         } else {
-            Log.e("MainActivity", "Bitmap es null, no se puede mostrar la imagen");
+            Log.e("MainActivity", "Bitmap is null, can't show image");
         }
-    }
-
-
-    /**
-     * Calcula un factor de escala para reducir el tamaño de la imagen.
-     *
-     * @param options Opciones de BitmapFactory.
-     * @param reqWidth Ancho requerido.
-     * @param reqHeight Altura requerida.
-     * @return Factor de escala.
-     */
-    private int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
-        final int height = options.outHeight;
-        final int width = options.outWidth;
-        int inSampleSize = 1;
-
-        if (height > reqHeight || width > reqWidth) {
-            final int halfHeight = height / 2;
-            final int halfWidth = width / 2;
-
-            while ((halfHeight / inSampleSize) >= reqHeight
-                    && (halfWidth / inSampleSize) >= reqWidth) {
-                inSampleSize *= 2;
-            }
-        }
-
-        return inSampleSize;
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (player != null) {
-            player.release();
-            player = null;
-        }
         executorService.shutdown();
         Log.d("MainActivity", "onDestroy called");
     }
