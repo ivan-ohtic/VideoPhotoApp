@@ -12,8 +12,8 @@ Estas instrucciones te permitirán obtener una copia del proyecto en funcionamie
 Para instalar y ejecutar este proyecto, necesitas:
 
 - Java
-- Android Studio (versión X.X o superior)
-- SDK de Android (API Level XX o superior)
+- Android Studio (versión 7.0 o superior)
+- SDK de Android (API Level 24 o superior)
 
 ### Instalación
 
@@ -31,7 +31,7 @@ Sigue estos pasos para configurar el entorno de desarrollo:
 
 La aplicación VideoPhotoApp está diseñada para leer y reproducir medios (imágenes y videos) desde un archivo ZIP proporcionado. Aquí te explicamos cómo usarla:
 
-1. **Cargar Archivos**: La aplicación accede al contenido de un archivo ZIP en la ruta /src/main/assets. Este archivo debe llamarse NSIGN_Prueba_Android y contener imágenes, videos y un archivo `events.json`.
+1. **Cargar Archivos**: La aplicación accede al contenido de un archivo ZIP en la ruta /src/main/assets. Este archivo debe llamarse NSIGN_Prueba_Android y contener recursos (imagenes o vídeos mp4) y un archivo `events.json`.
 
 2. **Configuración del Contenido**: El archivo `events.json` incluido en el ZIP define las playlist, zonas de pantalla y recursos, el orden en el que deben ser mostrados y el tiempo de reproducción de cada uno.
 
