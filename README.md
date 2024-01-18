@@ -12,7 +12,7 @@ Estas instrucciones te permitirán obtener una copia del proyecto en funcionamie
 Para instalar y ejecutar este proyecto, necesitas:
 
 - Java
-- Android Studio (versión 7.0 o superior)
+- Android Studio
 - SDK de Android (API Level 24 o superior)
 
 ### Instalación
@@ -52,7 +52,7 @@ La aplicación VideoPhotoApp está diseñada para leer y reproducir medios (imá
    **Manejo de Errores**: La aplicación incluye un manejo de errores para posibles problemas relacionados con la lectura de recursos y del archivo `events.json`.
 
 
-### Este proyecto ha sido desarrollado utilizando las siguientes herramientas y tecnologías:
+### Herramientas y tecnologías:
    
    Android Studio - IDE utilizado para el desarrollo
    
